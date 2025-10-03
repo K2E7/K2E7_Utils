@@ -28,12 +28,59 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Tuple
+from typing import Callable, Dict, Iterable, List, NamedTuple, Tuple
 
 RECOGNIZED_EXTS = {".py", ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1"}
 
 
 LOGGER = logging.getLogger("clinton")
+
+
+class LogStyle(NamedTuple):
+    """Glyph + label pair defining a log prefix."""
+
+    glyph: str
+    label: str
+
+
+LOG_STYLES: Dict[str, LogStyle] = {
+    "info": LogStyle("[..]", "info"),
+    "done": LogStyle("[##]", "done"),
+    "warn": LogStyle("[!!]", "warn"),
+    "path": LogStyle("[::]", "path"),
+    "debug": LogStyle("[..]", "debug"),
+    "fail": LogStyle("[xx]", "fail"),
+}
+
+
+def _mark(kind: str) -> str:
+    style = LOG_STYLES[kind]
+    return f"{style.glyph} {style.label}"
+
+
+def _log(level: Callable[..., None], kind: str, fmt: str, *args: object) -> None:
+    """Emit a log line with a branded prefix."""
+    level("%s  " + fmt, _mark(kind), *args)
+
+
+def log_info(kind: str, fmt: str, *args: object) -> None:
+    """Log an informational message of the given kind."""
+    _log(LOGGER.info, kind, fmt, *args)
+
+
+def log_warn(fmt: str, *args: object) -> None:
+    """Log a warning message using the standard warning style."""
+    _log(LOGGER.warning, "warn", fmt, *args)
+
+
+def log_error(fmt: str, *args: object) -> None:
+    """Log an error message."""
+    _log(LOGGER.error, "fail", fmt, *args)
+
+
+def log_debug(fmt: str, *args: object) -> None:
+    """Log a debug message."""
+    _log(LOGGER.debug, "debug", fmt, *args)
 
 
 def configure_logging(verbose: bool) -> None:
@@ -62,7 +109,7 @@ def configure_logging(verbose: bool) -> None:
 def debug(msg: str, enabled: bool) -> None:
     """Print debug logs when enabled."""
     if enabled:
-        LOGGER.debug("[DEBUG] %s", msg)
+        log_debug("%s", msg)
 
 
 def is_writable_dir(p: Path) -> bool:
@@ -104,6 +151,13 @@ def write_text(p: Path, text: str) -> None:
 def guess_command_name(src: Path) -> str:
     """Derive command name from filename stem."""
     return src.stem
+
+
+def plural(count: int, singular: str, plural_word: str | None = None) -> str:
+    """Return singular/plural noun based on count."""
+    if count == 1:
+        return singular
+    return plural_word or singular + "s"
 
 
 # ---------- path discovery ----------
@@ -578,7 +632,7 @@ def safe_remove(p: Path, *, verbose: bool, dry_run: bool) -> bool:
             debug(f"[RM] unlink {p}", verbose)
             return True
     except (OSError, PermissionError) as e:
-        LOGGER.warning("⚠️  Could not remove %s: %s", p, e)
+        log_warn("could not remove %s: %s", p, e)
     return False
 
 
@@ -727,7 +781,7 @@ def collect_sources(args: argparse.Namespace) -> List[Path]:
 
     sources = discover_in_cwd()
     if not sources:
-        LOGGER.error("[ERROR] No recognizable scripts in current directory.")
+        log_error("no recognizable scripts in current directory")
         sys.exit(2)
     return sources
 
@@ -737,17 +791,22 @@ def install_all(
 ) -> Path | None:
     """Install each source and return the last target directory used for PATH updates."""
     system = platform.system().lower()
-    LOGGER.info("ℹ️  OS: %s, installing %d script(s)", system, len(sources))
+    count = len(sources)
+    log_info(
+        "info",
+        "os: %s / install %d %s",
+        system,
+        count,
+        plural(count, "script"),
+    )
     if name_override and len(sources) != 1:
-        LOGGER.error(
-            "[ERROR] --name can only be used when installing a single source file."
-        )
+        log_error("--name can only be used when installing a single source file")
         sys.exit(2)
 
     last_target_dir: Path | None = None
     for src in sources:
         if not src.exists():
-            LOGGER.warning("⚠️  Skipping missing source: %s", src)
+            log_warn("skipping missing source: %s", src)
             continue
         name = name_override or guess_command_name(src)
         if system.startswith("win"):
@@ -755,7 +814,7 @@ def install_all(
         else:
             target, how = install_unix(src, name, dry_run=dry_run, verbose=verbose)
         last_target_dir = Path(target).parent
-        LOGGER.info("✅ %s -> %s (%s)", name, target, how)
+        log_info("done", "%s -> %s (%s)", name, target, how)
     return last_target_dir
 
 
@@ -774,9 +833,9 @@ def apply_path_change(
     system = platform.system().lower()
     if print_only:
         if system.startswith("win"):
-            LOGGER.info("[PATH] Would add: %s", last_dir)
+            log_info("path", "would add: %s", last_dir)
         else:
-            LOGGER.info("[PATH] Would add line: %s", _line_to_add(last_dir))
+            log_info("path", "would add line: %s", _line_to_add(last_dir))
         return
 
     if no_path:
@@ -785,21 +844,23 @@ def apply_path_change(
     if system.startswith("win"):
         changed, detail = add_to_path_windows(last_dir, verbose=verbose)
         if changed:
-            LOGGER.info("🔧 Added to user PATH (Windows).")
-            LOGGER.info("Open a NEW terminal to use commands.")
+            log_info("path", "added to user path (windows)")
+            log_info("info", "open a new terminal to use commands")
         else:
-            LOGGER.info("ℹ️  PATH not changed (%s).", detail)
-            LOGGER.info("If commands aren't found, add: %s", last_dir)
+            log_info("path", "not changed (%s)", detail)
+            log_info("info", "if commands aren't found, add: %s", last_dir)
     else:
         changed, rc_file, line = add_to_path_unix(last_dir, verbose=verbose)
         if changed:
-            LOGGER.info("🔧 Added to PATH by editing %s.", rc_file)
-            LOGGER.info("   %s", line)
-            LOGGER.info("Open a NEW shell (or `source %s`) to use commands.", rc_file)
+            log_info("path", "added by editing %s", rc_file)
+            log_info("path", "   %s", line)
+            log_info(
+                "info", "open a new shell (or `source %s`) to use commands", rc_file
+            )
         else:
-            LOGGER.info("ℹ️  PATH already included or could not be updated.")
-            LOGGER.info("If commands aren't found, add this to your rc file:")
-            LOGGER.info("   %s", line)
+            log_info("path", "already included or could not be updated")
+            log_info("info", "if commands aren't found, add this to your rc file:")
+            log_info("info", "   %s", line)
 
 
 def _uninstall_windows(
@@ -811,18 +872,18 @@ def _uninstall_windows(
 
     shims = find_windows_shims(name)
     if not shims and verbose:
-        LOGGER.info("ℹ️  No shims found on PATH.")
+        log_info("info", "no shims found on path")
     for shim in shims:
         candidate_bindirs.append(shim.parent)
         if safe_remove(shim, verbose=verbose, dry_run=dry_run):
-            LOGGER.info("🗑️  removed %s", shim)
+            log_info("done", "removed %s", shim)
             removed_any = True
 
     if purge:
         payload = windows_payload_dir(name)
         if payload.exists():
             if safe_remove(payload, verbose=verbose, dry_run=dry_run):
-                LOGGER.info("🗑️  removed payload %s", payload)
+                log_info("done", "removed payload %s", payload)
                 removed_any = True
 
     if not keep_path:
@@ -832,8 +893,9 @@ def _uninstall_windows(
                 continue
             seen.add(bindir)
             if remove_from_path_windows(bindir, verbose=verbose) and not dry_run:
-                LOGGER.info(
-                    "🧹 Removed PATH entry for %s (Windows). Open a NEW terminal to refresh.",
+                log_info(
+                    "path",
+                    "removed entry for %s (windows). open a new terminal to refresh",
                     bindir,
                 )
 
@@ -849,11 +911,11 @@ def _uninstall_unix(
 
     targets = find_unix_targets(name)
     if not targets and verbose:
-        LOGGER.info("ℹ️  No targets found on PATH or common dirs.")
+        log_info("info", "no targets found on path or common dirs")
     for target in targets:
         candidate_bindirs.append(target.parent)
         if safe_remove(target, verbose=verbose, dry_run=dry_run):
-            LOGGER.info("🗑️  removed %s", target)
+            log_info("done", "removed %s", target)
             removed_any = True
 
     if not keep_path:
@@ -863,7 +925,7 @@ def _uninstall_unix(
                 continue
             seen.add(bindir)
             if remove_from_path_unix(bindir, verbose=verbose) and not dry_run:
-                LOGGER.info("🧹 Removed PATH entry from your shell rc file.")
+                log_info("path", "removed path entry from your shell rc file")
 
     return removed_any
 
@@ -890,10 +952,11 @@ def do_uninstall(
         )
 
     if not removed_any:
-        LOGGER.info(
-            "ℹ️  Nothing removed for '%s'. %s",
+        log_info(
+            "info",
+            "nothing removed for '%s'. %s",
             name,
-            "It may not be installed or is in a non-standard location.",
+            "it may not be installed or is in a non-standard location.",
         )
 
 
