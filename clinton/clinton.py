@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-lines
 """
 CLINTON
 Install or uninstall local scripts as global commands by placing/removing shims in a
@@ -657,6 +658,13 @@ def resolve_name_in_cwd(name: str) -> Path:
 
 def parse_args() -> argparse.Namespace:
     """Parse and return CLI arguments (with subcommands)."""
+
+    class HelpFormatter(
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.RawDescriptionHelpFormatter,
+    ):
+        """Formatter combining defaults and raw descriptions."""
+
     prog = Path(__file__).name
     description = textwrap.dedent(
         f"""\
@@ -676,7 +684,7 @@ def parse_args() -> argparse.Namespace:
         prog=prog,
         description=description,
         epilog=epilog,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=HelpFormatter,
     )
     sub = ap.add_subparsers(dest="cmd", metavar="command")
 
@@ -734,12 +742,35 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Back-compat: if no subcommand, treat as install
-    ap.add_argument("--source", nargs="*", help=argparse.SUPPRESS)
-    ap.add_argument("--name", help=argparse.SUPPRESS)
-    ap.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--no-path", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--print-path-change", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument(
+        "--source",
+        nargs="*",
+        help="Same as the install flag; lets you list sources without the subcommand.",
+    )
+    ap.add_argument(
+        "--name",
+        help="Shortcut for install --name when you omit the subcommand.",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Global alias for install/uninstall --dry-run.",
+    )
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Global alias for install/uninstall --verbose.",
+    )
+    ap.add_argument(
+        "--no-path",
+        action="store_true",
+        help="Global alias for install --no-path.",
+    )
+    ap.add_argument(
+        "--print-path-change",
+        action="store_true",
+        help="Global alias for install --print-path-change.",
+    )
 
     return ap.parse_args()
 
