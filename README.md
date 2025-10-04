@@ -39,7 +39,7 @@ This project is relevant for:
 
 | Utility | Description |
 | --- | --- |
-| [`clinton`](clinton/README.md) | Script installer that copies/wraps local tools into a writable `PATH` directory and optionally updates shell or Windows PATH entries. Ideal for promoting personal scripts to global commands without root access. |
+| [`clinton`](clinton/) | Script installer that copies/wraps local tools into a writable `PATH` directory and optionally updates shell or Windows PATH entries. Ideal for promoting personal scripts to global commands without root access. |
 
 I continue to add new scripts as they mature. Bookmark this repo or watch it to
 stay updated on fresh automation helpers, shell commands, and Python utilities.
